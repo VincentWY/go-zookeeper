@@ -3,6 +3,9 @@ package zk
 /*
 TODO:
 * make sure a ping response comes back in a reasonable time
+
+Possible watcher events:
+* Event{Type: EventNotWatching, State: StateDisconnected, Path: path, Err: err}
 */
 
 import (
@@ -105,7 +108,7 @@ func Connect(servers []string, recvTimeout time.Duration) (*Conn, <-chan Event, 
 func ConnectWithDialer(servers []string, recvTimeout time.Duration, dialer Dialer) (*Conn, <-chan Event, error) {
 	for i, addr := range servers {
 		if !strings.Contains(addr, ":") {
-			servers[i] = addr + ":" + strconv.Itoa(defaultPort)
+			servers[i] = addr + ":" + strconv.Itoa(DefaultPort)
 		}
 	}
 	ec := make(chan Event, eventChanSize)
@@ -163,6 +166,7 @@ func (c *Conn) setState(state State) {
 }
 
 func (c *Conn) connect() {
+	c.serverIndex = (c.serverIndex + 1) % len(c.servers)
 	startIndex := c.serverIndex
 	c.setState(StateConnecting)
 	for {
@@ -608,6 +612,7 @@ func (c *Conn) Get(path string) ([]byte, *Stat, error) {
 	return res.Data, &res.Stat, err
 }
 
+// Get the contents of a znode and set a watch
 func (c *Conn) GetW(path string) ([]byte, *Stat, <-chan Event, error) {
 	var ech <-chan Event
 	res := &getDataResponse{}
@@ -651,8 +656,9 @@ func (c *Conn) CreateProtectedEphemeralSequential(path string, data []byte, acl 
 	rootPath := strings.Join(parts[:len(parts)-1], "/")
 	protectedPath := strings.Join(parts, "/")
 
+	var newPath string
 	for i := 0; i < 3; i++ {
-		newPath, err := c.Create(protectedPath, data, FlagEphemeral|FlagSequence, acl)
+		newPath, err = c.Create(protectedPath, data, FlagEphemeral|FlagSequence, acl)
 		switch err {
 		case ErrSessionExpired:
 			// No need to search for the node since it can't exist. Just try again.
